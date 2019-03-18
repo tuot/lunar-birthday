@@ -1,22 +1,9 @@
 #!/usr/bin/python
-#
-# Copyright 2012 Google Inc. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 import httplib2
 import sys
 import json
+import datetime
 
 from apiclient.discovery import build
 from oauth2client import tools
@@ -69,33 +56,35 @@ def get_contacts_service():
 
 def main():
 
+    birthdays_list = []
     service = get_contacts_service()
-    resp = service.contactGroups().list().execute()
-
-    contactGroups_resourceName = ''
-    for item in resp.get('contactGroups', []):
-        if item['formattedName'] == '农历生日':
-            contactGroups_resourceName = item['resourceName']
-
-    resp = service.contactGroups().get(resourceName=contactGroups_resourceName,
-                                       maxMembers=100).execute()
-    if resp:
-        pass
-
     page_token = None
     while True:
         response = service.people().connections().list(resourceName='people/me',
                                                        pageToken=page_token,
-                                                       personFields='addresses,ageRanges,biographies,birthdays,braggingRights,coverPhotos,emailAddresses,events,genders,imClients,interests,locales,memberships,metadata,names,nicknames,occupations,organizations,phoneNumbers,photos,relations,relationshipInterests,relationshipStatuses,residences,sipAddresses,skills,taglines,urls,userDefined').execute()
+                                                       personFields='names,biographies,birthdays').execute()
         connections = response.get('connections', [])
         for people in connections:
-            print(people.get('names'))
-            if people.get('names')[0].get('displayName') == '爸爸':
-                print(people.get('birthdays'))
+            contacts_biographies = people.get('biographies')
+            if contacts_biographies:
+                people_item = {
+                    'name': people.get('names')[0]['displayName']
+                }
+                if contacts_biographies:
+                    value = contacts_biographies[0]['value']
+                    try:
+                        datetime.datetime.strptime(value, '%Y-%m-%d')
+                    except ValueError:
+                        print(value + '日期填写错误')
+                    else:
+                        people_item['birthday'] = value
+                        people_item['is_lunar'] = True
+                        birthdays_list.append(people_item)
         page_token = response.get('nextPageToken')
         if not page_token:
             break
-
+    with open('birthdays.json', 'w', encoding='utf-8') as f:
+        json.dump(birthdays_list, f, ensure_ascii=False, indent=4)
     # page_token = None
     # while True:
     #     calendar_list = service.calendarList().list(pageToken=page_token).execute()
@@ -104,6 +93,7 @@ def main():
     #     page_token = calendar_list.get('nextPageToken')
     #     if not page_token:
     #         break
+
 
     # try:
     #     request = service.events().list(calendarId='#contacts@group.v.calendar.google.com')
