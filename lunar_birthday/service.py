@@ -1,6 +1,7 @@
 import httplib2
 import json
 import datetime
+import logging
 
 from apiclient import discovery
 from oauth2client import tools
@@ -8,6 +9,8 @@ from oauth2client.file import Storage
 from oauth2client.client import OAuth2WebServerFlow
 import os
 from zhdate import ZhDate
+
+logging.basicConfig(level=logging.ERROR)
 
 
 class LunarBirthday():
@@ -133,15 +136,17 @@ class LunarBirthday():
                 encoding='utf-8') as f:
             birthdays = json.load(f)
         service = self.__get_calendar_service()
+        batch = service.new_batch_http_request()
         for people in birthdays:
             if people.get('events'):
                 name = people['name']
+                logging.error(name)
                 events = people.get('events')
-                batch = service.new_batch_http_request()
                 for event in events:
+                    year = event['date']['year']
                     formattedType = event.get('formattedType', '')
+                    now_year = datetime.datetime.now().date().year
                     if formattedType.find('农历') != -1:
-                        now_year = datetime.datetime.now().date().year
                         while now_year < 2100:
                             date = ZhDate(now_year, event['date']['month'],
                                           event['date']['day'])
@@ -151,7 +156,7 @@ class LunarBirthday():
                                 'day': date.to_datetime().date().day,
                             }
                             create_event = self.__create_birthday_event(
-                                '{}的{}'.format(name, formattedType),
+                                f'{name}的{now_year-year}岁{formattedType}',
                                 lunar_date,
                                 description=date.chinese(),
                                 is_lunar=True)
@@ -162,12 +167,16 @@ class LunarBirthday():
 
                     else:  # 阳历生日
                         if formattedType == '':
-                            formattedType = '生日'
+                            formattedType = '岁生日'
                         elif formattedType == 'Anniversary':
-                            formattedType = '周年纪念日'
-
-                        create_event = self.__create_birthday_event(
-                            '{}的{}'.format(name, formattedType), event['date'])
-                        batch.add(service.events().insert(
-                            calendarId=self.__calendar_id, body=create_event))
-                batch.execute()
+                            formattedType = '次周年纪念日'
+                        while now_year < 2100:
+                            event['date']['year'] = now_year
+                            create_event = self.__create_birthday_event(
+                                f'{name}的{now_year-year}{formattedType}',
+                                event['date'])
+                            batch.add(service.events().insert(
+                                calendarId=self.__calendar_id,
+                                body=create_event))
+                            now_year += 1
+        batch.execute()
