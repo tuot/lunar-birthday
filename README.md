@@ -20,11 +20,11 @@ python setup.py install
 
 - 打开 [Google APIs](https://developers.google.com/calendar/quickstart/python)
 
-  ![](https://user-images.githubusercontent.com/15625834/55669787-fe448280-58ad-11e9-8997-da822e775211.png)
+  ![](./images/da822e775211.png)
 
 - 获取Client ID 和 Client Secret
 
-  ![](https://user-images.githubusercontent.com/15625834/55669738-a1e16300-58ad-11e9-96a7-4b1a9f507503.png)
+  ![](./images/4b1a9f507503.png)
 
 
 
