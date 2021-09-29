@@ -16,7 +16,7 @@ def parse_args():
         '-a',
         '--add',
         action='store_true',
-        help='get all all birthdays from your contacts and then insert')
+        help='get all birthdays from your contacts and then insert')
     group.add_argument(
         '-f',
         '--file',
