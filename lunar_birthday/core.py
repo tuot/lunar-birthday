@@ -1,20 +1,20 @@
-import httplib2
-import json
 import datetime
+import json
 import logging
-
-from apiclient import discovery
-from oauth2client import tools
-from oauth2client.file import Storage
-from oauth2client.client import OAuth2WebServerFlow
 import os
+import os.path
+
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
 from zhdate import ZhDate
 
 logging.basicConfig(level=logging.ERROR)
 
 
 class LunarBirthday():
-    scope = [
+    SCOPES = [
         'https://www.googleapis.com/auth/calendar',
         'https://www.googleapis.com/auth/contacts.readonly',
     ]
@@ -24,30 +24,43 @@ class LunarBirthday():
     lunar_calendar_name = 'Lunar Birthday'
     time_zone = 'Asia/Shanghai'
 
-    def __init__(self, client_id, client_secret):
-        self.__client_id = client_id
-        self.__client_secret = client_secret
-        self.__calendar_id = self.__get_lunar_calendar_id()
+    def __init__(self):
+        pass
 
-    def __get_flow(self):
-        return OAuth2WebServerFlow(self.__client_id, self.__client_secret,
-                                   self.scope)
+    def get_creds(self):
+        creds = None
+        # The file token.json stores the user's access and refresh tokens, and is
+        # created automatically when the authorization flow completes for the first
+        # time.
+        if os.path.exists('token.json'):
+            creds = Credentials.from_authorized_user_file(
+                'token.json', self.SCOPES)
+        # If there are no (valid) credentials available, let the user log in.
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+            else:
+                flow = InstalledAppFlow.from_client_secrets_file(
+                    'credentials.json', self.SCOPES)
+                creds = flow.run_local_server(port=0)
+            # Save the credentials for the next run
+            with open('token.json', 'w') as token:
+                token.write(creds.to_json())
+        return creds
 
-    def __get_http(self):
-        storage = Storage(self.credentials_file)
-        credentials = storage.get()
-        if credentials is None or credentials.invalid:
-            credentials = tools.run_flow(self.__get_flow(), storage,
-                                         tools.argparser.parse_args())
-        return credentials.authorize(httplib2.Http())
 
     def __get_calendar_service(self):
-        return discovery.build(
-            serviceName='calendar', version='v3', http=self.__get_http())
+        # ref: https://developers.google.com/calendar/api/quickstart/python
+        creds = self.get_creds()
+        service = build('calendar', 'v3', credentials=creds)
+        return service
 
     def __get_contacts_service(self):
-        return discovery.build(
-            serviceName='people', version='v1', http=self.__get_http())
+        # ref: https://developers.google.com/people/quickstart/python
+
+        creds = self.get_creds()
+        service = build('people', 'v1', credentials=creds)
+        return service
 
     def get_contacts_birthdays(self):
         birthdays_list = []
@@ -61,10 +74,11 @@ class LunarBirthday():
             response = req.execute()
             connections = response.get('connections', [])
             for people in connections:
-                people_item = {
-                    'name': people.get('names')[0]['displayName'],
-                    'events': []
-                }
+                if people.get('names'):
+                    people_item = {
+                        'name': people.get('names')[0]['displayName'],
+                        'events': []
+                    }
                 if people.get('events'):
                     events = people.get('events')
                     for item in events:
@@ -116,31 +130,31 @@ class LunarBirthday():
         for item in calendar_list['items']:
             if item['summary'] == self.lunar_calendar_name:
                 calendar_id = item['id']
+                service.calendars().delete(calendarId=calendar_id).execute()
                 break
-        else:
-            calendar = {
-                'summary': self.lunar_calendar_name,
-                'timeZone': self.time_zone,
-            }
 
-            lunar_calendar = service.calendars().insert(
-                body=calendar).execute()
-            calendar_id = lunar_calendar['id']
+        calendar = {
+            'summary': self.lunar_calendar_name,
+            'timeZone': self.time_zone,
+        }
+        lunar_calendar = service.calendars().insert(
+            body=calendar).execute()
+        calendar_id = lunar_calendar['id']
 
         return calendar_id
 
-    def insert_event_to_calendar(self, bir_file=None):
-        with open(
-                bir_file if bir_file else self.people_birthday_file,
-                'r',
-                encoding='utf-8') as f:
+    def insert_event_to_calendar(self):
+        with open(self.people_birthday_file, 'r', encoding='utf-8') as f:
             birthdays = json.load(f)
+
+        calendar_id = self.__get_lunar_calendar_id()
+
         service = self.__get_calendar_service()
         batch = service.new_batch_http_request()
         for people in birthdays:
             if people.get('events'):
                 name = people['name']
-                logging.error(name)
+                logging.info(name)
                 events = people.get('events')
                 for event in events:
                     year = event['date']['year']
@@ -161,7 +175,7 @@ class LunarBirthday():
                                 description=date.chinese(),
                                 is_lunar=True)
                             batch.add(service.events().insert(
-                                calendarId=self.__calendar_id,
+                                calendarId=calendar_id,
                                 body=create_event))
                             now_year += 1
 
@@ -169,14 +183,14 @@ class LunarBirthday():
                         if formattedType == '':
                             formattedType = '岁生日'
                         elif formattedType == 'Anniversary':
-                            formattedType = '次周年纪念日'
+                            formattedType = '周年纪念日'
                         while now_year < 2100:
                             event['date']['year'] = now_year
                             create_event = self.__create_birthday_event(
                                 f'{name}的{now_year-year}{formattedType}',
                                 event['date'])
                             batch.add(service.events().insert(
-                                calendarId=self.__calendar_id,
+                                calendarId=calendar_id,
                                 body=create_event))
                             now_year += 1
         batch.execute()
